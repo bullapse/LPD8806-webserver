@@ -258,35 +258,42 @@ uint32_t Wheel(uint16_t WheelPos)
 }
 
 void executeAnimation(int id) {
-    switch(id) {
+  switch(id) {
     case 1:
       rainbow(curWait);
       strAnimation = "rainbow";
       curAnimation = 1;
+      break;
     case 2:
       colorChase(curColor, curWait);
       strAnimation = "colorChase";
       curAnimation = 2;
+      break;
     case 3:
       theaterChase(curColor, curWait);
       strAnimation = "theaterChase";
       curAnimation = 3;
+      break;
     case 4:
       colorWipe(curColor, curWait);
       strAnimation = "colorWipe";
       curAnimation = 4;
+      break;
     case 5:
       rainbowCycle(curWait);
       strAnimation = "rainbowCycle";
       curAnimation = 5;
+      break;
     case 6:
       theaterChaseRainbow(curWait);
       strAnimation = "theaterChaseRainbow";
       curAnimation = 6;
+      break;
     default:
       colorWipe(curColor, curWait);
       strAnimation = "colorWipe (default)";
       curAnimation = -1;
+      break;
   }
 }
 
@@ -307,25 +314,25 @@ int setWait(String command) {
 }
 
 int setColor(String color) {
-  if (color == "white") {
+  if (color.equals("white")) {
     curColor = strip.Color(127, 127, 127);
     strColor = "white";
-  } else if (color == "red") {
+  } else if (color.equals("red")) {
     curColor = strip.Color(127, 0, 0);
     strColor = "red";
-  } else if (color = "yellow") {
+  } else if (color.equals("yellow")) {
     curColor = strip.Color(127, 127, 0);
     strColor = "yellow";
-  } else if (color = "green") {
+  } else if (color.equals("green")) {
     curColor = strip.Color(0, 127, 0);
     strColor = "green";
-  } else if (color = "cyan") {
+  } else if (color.equals("cyan")) {
     curColor = strip.Color(0, 127, 127);
     strColor = "cyan";
-  } else if (color = "blue") {
+  } else if (color.equals("blue")) {
     curColor = strip.Color(0, 0, 127);
     strColor = "blue";
-  } else if (color = "purple") {
+  } else if (color.equals("purple")) {
     curColor = strip.Color(127, 0, 127);
     strColor = "purple";
   } else {
