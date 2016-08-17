@@ -2,7 +2,9 @@
 #include "SPI.h" // Comment out this line if using Trinket or Gemma
 #ifdef __AVR_ATtiny85__
  #include <avr/power.h>
-#endif
+#endif 
+#include <WiFi101.h>
+#include <aREST.h>
 
 // Example to control LPD8806-based RGB LED Modules in a strip
 
@@ -28,6 +30,36 @@ LPD8806 strip = LPD8806(nLEDs, dataPin, clockPin);
 // clock = pin B1.  For Leonardo, this can ONLY be done on the ICSP pins.
 //LPD8806 strip = LPD8806(nLEDs);
 
+/* wifi */
+// Status
+int status = WL_IDLE_STATUS;
+
+// Create aREST instance
+aREST rest = aREST();
+
+// WiFi parameters
+char ssid[] = "2400 Nueces Wireless";
+
+// The port to listen for incoming TCP connections
+#define LISTEN_PORT           80
+
+// Create an instance of the server
+WiFiServer server(LISTEN_PORT);
+
+// Variables to be exposed to the API
+int temperature;
+int humidity;
+int curWait;
+uint32_t curColor;
+String strColor;
+int curAnimation;
+String strAnimation;
+
+// Declare functions to be exposed to the API
+int ledControl(String command);
+/* end wifi */
+
+
 void setup() {
 #if defined(__AVR_ATtiny85__) && (F_CPU == 16000000L)
   clock_prescale_set(clock_div_1); // Enable 16 MHz on Trinket
@@ -38,12 +70,68 @@ void setup() {
 
   // Update the strip, to start they are all 'off'
   strip.show();
+
+  // Start Serial
+  Serial.begin(115200);
+
+  // Init variables and expose them to REST API
+  temperature = 24;
+  humidity = 40;
+  curWait = 5;
+  strColor = "blue"; 
+  curAnimation = -1;
+  strAnimation = "colorWipe (default)";
+  curColor = strip.Color(0, 0, 127); // Blue
+  rest.variable("wait", &curWait);
+  rest.variable("color", &strColor);
+  rest.variable("animation", &strAnimation);
+
+  // Function to be exposed
+  rest.function("setanimation",setAnimation);
+  rest.function("setwait", setWait);
+  rest.function("setcolor", setColor);
+
+  // Give name and ID to device (ID should be 6 characters long)
+  rest.set_id("1");
+  rest.set_name("mkr1000");
+
+  // Connect to WiFi
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to SSID: ");
+    Serial.println(ssid);
+    status = WiFi.begin(ssid);
+
+    // Wait 10 seconds for connection:
+    delay(10000);
+  }
+  Serial.println("WiFi connected");
+
+  // Start the server
+  server.begin();
+  Serial.println("Server started");
+
+  // Print the IP address
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
 }
 
 
 void loop() {
+  // Handle REST calls
+  WiFiClient client = server.available();
+  if (!client) {
+    // This where we want to do the last known call
+    Serial.println("waiting on client -- Resuming: " + strAnimation);
+    executeAnimation(curAnimation);
+    delay(500);    return;
+  }
+  while(!client.available()){
+    delay(1);
+  }
+  rest.handle(client);
   Serial.println("itteration");
-  rainbow(10);
+  delay(1000);
 }
 
 void rainbow(uint8_t wait) {
@@ -168,3 +256,81 @@ uint32_t Wheel(uint16_t WheelPos)
   }
   return(strip.Color(r,g,b));
 }
+
+void executeAnimation(int id) {
+    switch(id) {
+    case 1:
+      rainbow(curWait);
+      strAnimation = "rainbow";
+      curAnimation = 1;
+    case 2:
+      colorChase(curColor, curWait);
+      strAnimation = "colorChase";
+      curAnimation = 2;
+    case 3:
+      theaterChase(curColor, curWait);
+      strAnimation = "theaterChase";
+      curAnimation = 3;
+    case 4:
+      colorWipe(curColor, curWait);
+      strAnimation = "colorWipe";
+      curAnimation = 4;
+    case 5:
+      rainbowCycle(curWait);
+      strAnimation = "rainbowCycle";
+      curAnimation = 5;
+    case 6:
+      theaterChaseRainbow(curWait);
+      strAnimation = "theaterChaseRainbow";
+      curAnimation = 6;
+    default:
+      colorWipe(curColor, curWait);
+      strAnimation = "colorWipe (default)";
+      curAnimation = -1;
+  }
+}
+
+/* ----------------------_WIFI_---------------------*/
+// Custom function accessible by the API
+int setAnimation(String command) {
+  Serial.println("changing the current strip animation: "  + command);
+  int state = command.toInt();
+  executeAnimation(state);
+  return 1;
+}
+
+int setWait(String command) {
+  int state = command.toInt();
+  Serial.print("Changeing to state: " + command);
+  curWait = state;
+  return 1;
+}
+
+int setColor(String color) {
+  if (color == "white") {
+    curColor = strip.Color(127, 127, 127);
+    strColor = "white";
+  } else if (color == "red") {
+    curColor = strip.Color(127, 0, 0);
+    strColor = "red";
+  } else if (color = "yellow") {
+    curColor = strip.Color(127, 127, 0);
+    strColor = "yellow";
+  } else if (color = "green") {
+    curColor = strip.Color(0, 127, 0);
+    strColor = "green";
+  } else if (color = "cyan") {
+    curColor = strip.Color(0, 127, 127);
+    strColor = "cyan";
+  } else if (color = "blue") {
+    curColor = strip.Color(0, 0, 127);
+    strColor = "blue";
+  } else if (color = "purple") {
+    curColor = strip.Color(127, 0, 127);
+    strColor = "purple";
+  } else {
+    return 0;
+  }
+  return 1;
+}
+
