@@ -5,17 +5,19 @@
 #endif 
 #include <WiFi101.h>
 #include <aREST.h>
+#include <Adafruit_SleepyDog.h>
+
 
 // Example to control LPD8806-based RGB LED Modules in a strip
 
 /*****************************************************************************/
 
 // Number of RGB LEDs in strand:
-int nLEDs = 48;
+int nLEDs = 144;
 
 // Chose 2 pins for output; can be any valid output pins:
-int dataPin  = 4;
-int clockPin = 5;
+int dataPin  = 3;
+int clockPin = 4;
 
 // First parameter is the number of LEDs in the strand.  The LED strips
 // are 32 LEDs per meter but you can extend or cut the strip.  Next two
@@ -39,6 +41,7 @@ aREST rest = aREST();
 
 // WiFi parameters
 char ssid[] = "2400 Nueces Wireless";
+//char password[] = "CleoCoco";
 
 // The port to listen for incoming TCP connections
 #define LISTEN_PORT           80
@@ -54,6 +57,7 @@ uint32_t curColor;
 String strColor;
 int curAnimation;
 String strAnimation;
+IPAddress ip;
 
 // Declare functions to be exposed to the API
 int ledControl(String command);
@@ -81,7 +85,7 @@ void setup() {
   strColor = "blue"; 
   curAnimation = -1;
   strAnimation = "colorWipe (default)";
-  curColor = strip.Color(0, 0, 127); // Blue
+  curColor = strip.Color(0, 127, 0); // Blue
   rest.variable("wait", &curWait);
   rest.variable("color", &strColor);
   rest.variable("animation", &strAnimation);
@@ -90,6 +94,7 @@ void setup() {
   rest.function("setanimation",setAnimation);
   rest.function("setwait", setWait);
   rest.function("setcolor", setColor);
+  rest.function("off", off);
 
   // Give name and ID to device (ID should be 6 characters long)
   rest.set_id("1");
@@ -99,8 +104,9 @@ void setup() {
   while (status != WL_CONNECTED) {
     Serial.print("Attempting to connect to SSID: ");
     Serial.println(ssid);
+    //status = WiFi.begin(ssid, password);
     status = WiFi.begin(ssid);
-
+    
     // Wait 10 seconds for connection:
     delay(10000);
   }
@@ -111,18 +117,29 @@ void setup() {
   Serial.println("Server started");
 
   // Print the IP address
-  IPAddress ip = WiFi.localIP();
+  ip = WiFi.localIP();
   Serial.print("IP Address: ");
   Serial.println(ip);
+  // Print WiFi MAC address:
+  printMacAddress();
+  //int countdownMS = Watchdog.enable(60000);
+  //Serial.print("WatchDog Timer has started: ");
+  //Serial.print(countdownMS, DEC);
+  //Serial.println(" miliseconds");
 }
 
 
 void loop() {
+  // reset watchdog timer
+  //Watchdog.reset();//Watchdog.disable();
+
   // Handle REST calls
   WiFiClient client = server.available();
   if (!client) {
     // This where we want to do the last known call
     Serial.println("waiting on client -- Resuming: " + strAnimation);
+    Serial.print("IP Address: ");
+    Serial.println(ip);
     executeAnimation(curAnimation);
     delay(500);    return;
   }
@@ -172,6 +189,15 @@ void colorWipe(uint32_t c, uint8_t wait) {
       strip.setPixelColor(i, c);
       strip.show();
       delay(wait);
+  }
+}
+
+void colorWhipeNoWait(uint32_t c) {
+  int i;
+
+  for (i=0; i < strip.numPixels(); i++) {
+    strip.setPixelColor(i, c);
+    strip.show();
   }
 }
 
@@ -240,18 +266,18 @@ uint32_t Wheel(uint16_t WheelPos)
   {
     case 0:
       r = 127 - WheelPos % 128;   //Red down
-      g = WheelPos % 128;      // Green up
-      b = 0;                  //blue off
+      b = WheelPos % 128;      // Green up
+      g = 0;                  //blue off
       break; 
     case 1:
-      g = 127 - WheelPos % 128;  //green down
-      b = WheelPos % 128;      //blue up
+      b = 127 - WheelPos % 128;  //green down
+      g = WheelPos % 128;      //blue up
       r = 0;                  //red off
       break; 
     case 2:
-      b = 127 - WheelPos % 128;  //blue down 
+      g = 127 - WheelPos % 128;  //blue down 
       r = WheelPos % 128;      //red up
-      g = 0;                  //green off
+      b = 0;                  //green off
       break; 
   }
   return(strip.Color(r,g,b));
@@ -259,6 +285,11 @@ uint32_t Wheel(uint16_t WheelPos)
 
 void executeAnimation(int id) {
   switch(id) {
+    case 0:
+      colorWhipeNoWait(strip.Color(0, 0, 0));
+      strAnimation = "off";
+      curAnimation = 0;
+      break;
     case 1:
       rainbow(curWait);
       strAnimation = "rainbow";
@@ -313,7 +344,14 @@ int setWait(String command) {
   return 1;
 }
 
+int off(String command) {
+  // ingore the incomming command and turn off the strip
+  curAnimation = 0;
+  return 1;
+}
+
 int setColor(String color) {
+  Serial.println("Changing color to: " + color);
   if (color.equals("white")) {
     curColor = strip.Color(127, 127, 127);
     strColor = "white";
@@ -321,23 +359,43 @@ int setColor(String color) {
     curColor = strip.Color(127, 0, 0);
     strColor = "red";
   } else if (color.equals("yellow")) {
-    curColor = strip.Color(127, 127, 0);
+    curColor = strip.Color(127, 0, 127);
     strColor = "yellow";
   } else if (color.equals("green")) {
-    curColor = strip.Color(0, 127, 0);
+    curColor = strip.Color(0, 0, 127);
     strColor = "green";
   } else if (color.equals("cyan")) {
     curColor = strip.Color(0, 127, 127);
     strColor = "cyan";
   } else if (color.equals("blue")) {
-    curColor = strip.Color(0, 0, 127);
+    curColor = strip.Color(0, 127, 0);
     strColor = "blue";
   } else if (color.equals("purple")) {
-    curColor = strip.Color(127, 0, 127);
+    curColor = strip.Color(127, 127, 0);
     strColor = "purple";
   } else {
     return 0;
   }
   return 1;
+}
+
+void printMacAddress() {
+  // the MAC address of your Wifi shield
+  byte mac[6];
+
+  // print your MAC address:
+  WiFi.macAddress(mac);
+  Serial.print("MAC: ");
+  Serial.print(mac[5], HEX);
+  Serial.print(":");
+  Serial.print(mac[4], HEX);
+  Serial.print(":");
+  Serial.print(mac[3], HEX);
+  Serial.print(":");
+  Serial.print(mac[2], HEX);
+  Serial.print(":");
+  Serial.print(mac[1], HEX);
+  Serial.print(":");
+  Serial.println(mac[0], HEX);
 }
 
