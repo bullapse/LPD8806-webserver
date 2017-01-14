@@ -2,10 +2,9 @@
 #include "SPI.h" // Comment out this line if using Trinket or Gemma
 #ifdef __AVR_ATtiny85__
  #include <avr/power.h>
-#endif 
+#endif
 #include <WiFi101.h>
-#include <aREST.h>
-#include <Adafruit_SleepyDog.h>
+#include "RestClient.h"
 
 
 // Example to control LPD8806-based RGB LED Modules in a strip
@@ -32,22 +31,12 @@ LPD8806 strip = LPD8806(nLEDs, dataPin, clockPin);
 // clock = pin B1.  For Leonardo, this can ONLY be done on the ICSP pins.
 //LPD8806 strip = LPD8806(nLEDs);
 
-/* wifi */
-// Status
-int status = WL_IDLE_STATUS;
-
-// Create aREST instance
-aREST rest = aREST();
-
 // WiFi parameters
 char ssid[] = "2400 Nueces Wireless";
-//char password[] = "CleoCoco";
+char password[] = ""; // set password to "" if there is no password
+RestClient client = RestClient("https://l0fcxhf0xj.execute-api.us-west-2.amazonaws.com/test", ssid, password);
+int status = WL_IDLE_STATUS;         // the Wifi radio's status
 
-// The port to listen for incoming TCP connections
-#define LISTEN_PORT           80
-
-// Create an instance of the server
-WiFiServer server(LISTEN_PORT);
 
 // Variables to be exposed to the API
 int temperature;
@@ -58,6 +47,7 @@ String strColor;
 int curAnimation;
 String strAnimation;
 IPAddress ip;
+String mac;
 
 // Declare functions to be exposed to the API
 int ledControl(String command);
@@ -65,6 +55,8 @@ int ledControl(String command);
 
 
 void setup() {
+Serial.begin(9600);
+
 #if defined(__AVR_ATtiny85__) && (F_CPU == 16000000L)
   clock_prescale_set(clock_div_1); // Enable 16 MHz on Trinket
 #endif
@@ -76,98 +68,107 @@ void setup() {
   strip.show();
 
   // Start Serial
-  Serial.begin(115200);
+  // Serial.begin(115200);
 
-  // Init variables and expose them to REST API
-  temperature = 24;
-  humidity = 40;
   curWait = 5;
-  strColor = "blue"; 
+  strColor = "blue";
   curAnimation = -1;
   strAnimation = "colorWipe (default)";
   curColor = strip.Color(0, 127, 0); // Blue
-  rest.variable("wait", &curWait);
-  rest.variable("color", &strColor);
-  rest.variable("animation", &strAnimation);
 
-  // Function to be exposed
-  rest.function("setanimation",setAnimation);
-  rest.function("setwait", setWait);
-  rest.function("setcolor", setColor);
-  rest.function("off", off);
 
-  // Give name and ID to device (ID should be 6 characters long)
-  rest.set_id("1");
-  rest.set_name("mkr1000");
 
-  // Connect to WiFi
-  while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(ssid);
-    //status = WiFi.begin(ssid, password);
-    status = WiFi.begin(ssid);
-    
-    // Wait 10 seconds for connection:
-    delay(10000);
+  // Check too see if there is already an instance of me in the database
+  if (client.connect() == WL_CONNECTED) {
+      Serial.println("Checking to see if I already exist in the database");
+      mac = getMacAddress();
+      Serial.print("Mac: ");
+      Serial.println(mac);
+      ip = WiFi.localIP();
+      Serial.print("IP Address: ");
+      Serial.println(ip);
+      String response = "";
+      String api = "/light?mac=" + mac;
+      char apiBuf[256];
+      Serial.print("PATH: ");
+      Serial.println(apiBuf);
+      api.toCharArray(apiBuf, 256);
+      int statusCode = client.get(apiBuf, &response);
+      Serial.print("StatusCode: ");
+      Serial.println(statusCode);
+      Serial.print("Response: ");
+      Serial.println(response);
+      if (statusCode == 200) {
+          // check the message body
+          int firstBracket = response.indexOf('[');
+          int lastBracket = response.indexOf(']');
+          if (lastBracket - firstBracket == 1) {
+              // then empty, so there we need to register the led
+              String user = "DEFAULT_USER";
+              String ledName = mac;
+              String location = "DEFAULT_LOCATION";
+              String description = "DEFAULT_DESCRIPTION";
+              String json = "{\"location\":{\"S\":" + location + "},\"animation\":{\"S\":"+strAnimation+"},\"ip\":{\"S\":"+ip+"},\"user\":{\"S\":"+user+"},\"description\":{\"S\":"+description+"},\"mac\":{\"S\":"+mac+"},\"name\":{\"S\":"+mac+"},\"color\":{\"S\":"+strColor+"}}";
+              char jsonBuf[256];
+              json.toCharArray(jsonBuf, 256);
+              String postResponse = "";
+
+              int postStatusCode = client.post("/light", jsonBuf, &postResponse);
+              Serial.print("Status Code: ");
+              Serial.println(postStatusCode);
+              Serial.print("Response: ");
+              Serial.println(postResponse);
+          }
+      } else {
+          Serial.println("There was an error checking to see if the device was registered.");
+      }
+  } else {
+      Serial.println("WIFI is not connected");
   }
-  Serial.println("WiFi connected");
 
-  // Start the server
-  server.begin();
-  Serial.println("Server started");
-
-  // Print the IP address
-  ip = WiFi.localIP();
-  Serial.print("IP Address: ");
-  Serial.println(ip);
-  // Print WiFi MAC address:
-  printMacAddress();
-  //int countdownMS = Watchdog.enable(60000);
-  //Serial.print("WatchDog Timer has started: ");
-  //Serial.print(countdownMS, DEC);
-  //Serial.println(" miliseconds");
 }
 
 
 void loop() {
-  // reset watchdog timer
-  //Watchdog.reset();//Watchdog.disable();
+  // Check SQS BUS via rest GET
 
-  // Handle REST calls
-  WiFiClient client = server.available();
-  if (!client) {
-    // This where we want to do the last known call
-    Serial.println("waiting on client -- Resuming: " + strAnimation);
-    Serial.print("IP Address: ");
-    Serial.println(ip);
-    executeAnimation(curAnimation);
-    delay(500);    return;
-  }
-  while(!client.available()){
-    delay(1);
-  }
-  rest.handle(client);
-  Serial.println("itteration");
-  delay(1000);
 }
+
+    // SERVER VERSION
+  // WiFiClient client = server.available();
+  // if (!client) {
+  //   // This where we want to do the last known call
+  //   Serial.println("waiting on client -- Resuming: " + strAnimation);
+  //   Serial.print("IP Address: ");
+  //   Serial.println(ip);
+  //   executeAnimation(curAnimation);
+  //   delay(500);    return;
+  // }
+  // while(!client.available()){
+  //   delay(1);
+  // }
+  // rest.handle(client);
+  // Serial.println("itteration");
+  // delay(1000);
+// }
 
 void rainbow(uint8_t wait) {
   int i, j;
-   
+
   for (j=0; j < 384; j++) {     // 3 cycles of all 384 colors in the wheel
     for (i=0; i < strip.numPixels(); i++) {
       strip.setPixelColor(i, Wheel( (i + j) % 384));
-    }  
+    }
     strip.show();   // write all the pixels out
     delay(wait);
   }
 }
 
-// Slightly different, this one makes the rainbow wheel equally distributed 
+// Slightly different, this one makes the rainbow wheel equally distributed
 // along the chain
 void rainbowCycle(uint8_t wait) {
   uint16_t i, j;
-  
+
   for (j=0; j < 384 * 5; j++) {     // 5 cycles of all 384 colors in the wheel
     for (i=0; i < strip.numPixels(); i++) {
       // tricky math! we use each pixel as a fraction of the full 384-color wheel
@@ -175,7 +176,7 @@ void rainbowCycle(uint8_t wait) {
       // Then add in j which makes the colors go around per pixel
       // the % 384 is to make the wheel cycle around
       strip.setPixelColor(i, Wheel( ((i * 384 / strip.numPixels()) + j) % 384) );
-    }  
+    }
     strip.show();   // write all the pixels out
     delay(wait);
   }
@@ -227,9 +228,9 @@ void theaterChase(uint32_t c, uint8_t wait) {
         strip.setPixelColor(i+q, c);    //turn every third pixel on
       }
       strip.show();
-     
+
       delay(wait);
-     
+
       for (int i=0; i < strip.numPixels(); i=i+3) {
         strip.setPixelColor(i+q, 0);        //turn every third pixel off
       }
@@ -245,9 +246,9 @@ void theaterChaseRainbow(uint8_t wait) {
           strip.setPixelColor(i+q, Wheel( (i+j) % 384));    //turn every third pixel on
         }
         strip.show();
-       
+
         delay(wait);
-       
+
         for (int i=0; i < strip.numPixels(); i=i+3) {
           strip.setPixelColor(i+q, 0);        //turn every third pixel off
         }
@@ -268,17 +269,17 @@ uint32_t Wheel(uint16_t WheelPos)
       r = 127 - WheelPos % 128;   //Red down
       b = WheelPos % 128;      // Green up
       g = 0;                  //blue off
-      break; 
+      break;
     case 1:
       b = 127 - WheelPos % 128;  //green down
       g = WheelPos % 128;      //blue up
       r = 0;                  //red off
-      break; 
+      break;
     case 2:
-      g = 127 - WheelPos % 128;  //blue down 
+      g = 127 - WheelPos % 128;  //blue down
       r = WheelPos % 128;      //red up
       b = 0;                  //green off
-      break; 
+      break;
   }
   return(strip.Color(r,g,b));
 }
@@ -379,23 +380,12 @@ int setColor(String color) {
   return 1;
 }
 
-void printMacAddress() {
-  // the MAC address of your Wifi shield
+String getMacAddress() {
   byte mac[6];
-
-  // print your MAC address:
   WiFi.macAddress(mac);
-  Serial.print("MAC: ");
-  Serial.print(mac[5], HEX);
-  Serial.print(":");
-  Serial.print(mac[4], HEX);
-  Serial.print(":");
-  Serial.print(mac[3], HEX);
-  Serial.print(":");
-  Serial.print(mac[2], HEX);
-  Serial.print(":");
-  Serial.print(mac[1], HEX);
-  Serial.print(":");
-  Serial.println(mac[0], HEX);
+  return  String(mac[5], HEX) + ":" + String(mac[4], HEX) + ":" + String(mac[3], HEX) + ":" + String(mac[2], HEX) + ":" + String(mac[1], HEX) + ":" + String(mac[0], HEX);
 }
 
+void printMacAddress() {
+  Serial.print(getMacAddress());
+}

@@ -65,6 +65,10 @@ exports.handler = (event, context, callback) => {
                 params.FilterExpression = "#n = :n";
                 params.ExpressionAttributeNames = {"#n" : "name"};
                 params.ExpressionAttributeValues = {":n" : event.queryStringParameters.name};
+            } else if (isMacInEvent(event)) {
+                params.FilterExpression = "#m = :m";
+                params.ExpressionAttributeNames = {"#m" : "mac"};
+                params.ExpressionAttributeValues = {":m" : event.queryStringParameters.mac}
             }
             dynamo.scan(params, done);
 
@@ -142,6 +146,10 @@ function sendMessage(lightName, paramName, paramValue, callback) {
     });
 }
 
+function isMacInEvent(event) {
+    return event.queryStringParameters !== null && "mac" in event.queryStringParameters && event.queryStringParameters.mac !== null;
+}
+
 function isNameInEvent(event) {
-    return event.queryStringParameters !== null && "name" in event.queryStringParameters && event.queryStringParameters.name !== null
+    return event.queryStringParameters !== null && "name" in event.queryStringParameters && event.queryStringParameters.name !== null;
 }
