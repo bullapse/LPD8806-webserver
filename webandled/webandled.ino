@@ -32,10 +32,14 @@ LPD8806 strip = LPD8806(nLEDs, dataPin, clockPin);
 //LPD8806 strip = LPD8806(nLEDs);
 
 // WiFi parameters
-char ssid[] = "2400 Nueces Wireless";
-char password[] = ""; // set password to "" if there is no password
-RestClient client = RestClient("https://l0fcxhf0xj.execute-api.us-west-2.amazonaws.com/test", ssid, password);
+const char ssid[] = "2400 Nueces Wireless";
+const char password[] = ""; // set password to "" if there is no password
+const char* host = "https://l0fcxhf0xj.execute-api.us-west-2.amazonaws.com/test";
+const int  port = 443;
+const char* contentType = "x-www-form-urlencoded";
+// RestClient client = RestClient("l0fcxhf0xj.execute-api.us-west-2.amazonaws.com/test", ssid, password);
 int status = WL_IDLE_STATUS;         // the Wifi radio's status
+WiFiClient client;
 
 
 // Variables to be exposed to the API
@@ -53,9 +57,126 @@ String mac;
 int ledControl(String command);
 /* end wifi */
 
+int readResponse(String* response){
+    // an http request ends with a blank line
+ boolean currentLineIsBlank = true;
+ boolean httpBody = false;
+ boolean inStatus = false;
+
+ char statusCode[4];
+ int i = 0;
+ int code = 0;
+
+ if(response == NULL){
+   Serial.println("HTTP: NULL RESPONSE POINTER: ");
+ }else{
+   Serial.println("HTTP: NON-NULL RESPONSE POINTER: ");
+ }
+
+ Serial.println("HTTP: RESPONSE: ");
+ while (client.connected()) {
+
+   if (client.available()) {
+     Serial.print(",");
+     char c = client.read();
+     Serial.print(c);
+
+     if(c == ' ' && !inStatus){
+       inStatus = true;
+     }
+
+     if(inStatus && i < 3 && c != ' '){
+       statusCode[i] = c;
+       i++;
+     }
+     if(i == 3){
+       statusCode[i] = '\0';
+       code = atoi(statusCode);
+     }
+
+     if(httpBody){
+       //only write response if its not null
+       if(response != NULL) response->concat(c);
+     }
+     else
+     {
+         if (c == '\n' && currentLineIsBlank) {
+           httpBody = true;
+         }
+
+         if (c == '\n') {
+           // you're starting a new line
+           currentLineIsBlank = true;
+         }
+         else if (c != '\r') {
+           // you've gotten a character on the current line
+           currentLineIsBlank = false;
+         }
+     }
+   }
+ }
+
+ Serial.println("HTTP: return readResponse");
+ return code;
+}
+
+int request(const char* method, const char* path, const char* body, String* response){
+    if (client.connectSSL(host, port)){
+        Serial.println("REQUEST: \n");
+        Serial.print("PATH: ");
+        Serial.println(path);
+
+        client.print(method);
+        client.print(" ");
+        client.print(path);
+        client.print(" HTTP/1.1\r\n");
+        // write headers
+        // n/a
+
+        client.print("Host: ");
+        client.print(host);
+        client.print("\r\n");
+        client.print("Connection: close\r\n");
+
+        if (body != NULL){
+            char conLen[30];
+            sprintf(conLen, "Content-Length: %d\r\n", strlen(body));
+            client.print(conLen);
+            client.print("Content-Type: ");
+            client.print(contentType);
+            client.print("\r\n");
+        }
+
+        client.print("\r\n");
+
+        if (body != NULL){
+            client.print(body);
+            client.print("\r\n");
+            client.print("\r\n");
+        }
+
+        delay(200);
+        int statusCode = readResponse(response);
+
+        client.stop();
+        delay(50);
+        return statusCode;
+    } else {
+        Serial.println("HTTP Connection failed");
+    }
+}
+
+int restGet(const char* path, String* response){
+    return request("GET", path, NULL, response);
+}
+
+int restPost(const char* path, const char* body, String* response){
+    return request("POST", path, body, response);
+}
 
 void setup() {
 Serial.begin(9600);
+
 
 #if defined(__AVR_ATtiny85__) && (F_CPU == 16000000L)
   clock_prescale_set(clock_div_1); // Enable 16 MHz on Trinket
@@ -79,52 +200,63 @@ Serial.begin(9600);
 
 
   // Check too see if there is already an instance of me in the database
-  if (client.connect() == WL_CONNECTED) {
-      Serial.println("Checking to see if I already exist in the database");
-      mac = getMacAddress();
-      Serial.print("Mac: ");
-      Serial.println(mac);
-      ip = WiFi.localIP();
-      Serial.print("IP Address: ");
-      Serial.println(ip);
-      String response = "";
-      String api = "/light?mac=" + mac;
-      char apiBuf[256];
-      Serial.print("PATH: ");
-      Serial.println(apiBuf);
-      api.toCharArray(apiBuf, 256);
-      int statusCode = client.get(apiBuf, &response);
-      Serial.print("StatusCode: ");
-      Serial.println(statusCode);
-      Serial.print("Response: ");
-      Serial.println(response);
-      if (statusCode == 200) {
-          // check the message body
-          int firstBracket = response.indexOf('[');
-          int lastBracket = response.indexOf(']');
-          if (lastBracket - firstBracket == 1) {
-              // then empty, so there we need to register the led
-              String user = "DEFAULT_USER";
-              String ledName = mac;
-              String location = "DEFAULT_LOCATION";
-              String description = "DEFAULT_DESCRIPTION";
-              String json = "{\"location\":{\"S\":" + location + "},\"animation\":{\"S\":"+strAnimation+"},\"ip\":{\"S\":"+ip+"},\"user\":{\"S\":"+user+"},\"description\":{\"S\":"+description+"},\"mac\":{\"S\":"+mac+"},\"name\":{\"S\":"+mac+"},\"color\":{\"S\":"+strColor+"}}";
-              char jsonBuf[256];
-              json.toCharArray(jsonBuf, 256);
-              String postResponse = "";
+ while (status != WL_CONNECTED) {
+     Serial.print("Attempting to connect to SSID: ");
+     Serial.print(ssid);
+     status = WiFi.begin(ssid);//, password);
+     delay(5000); // give it 5 seconds
+ }
+ Serial.print("Connected to ");
+ Serial.println(ssid);
 
-              int postStatusCode = client.post("/light", jsonBuf, &postResponse);
-              Serial.print("Status Code: ");
-              Serial.println(postStatusCode);
-              Serial.print("Response: ");
-              Serial.println(postResponse);
-          }
-      } else {
-          Serial.println("There was an error checking to see if the device was registered.");
+  Serial.println("Checking to see if I already exist in the database");
+
+
+
+  mac = getMacAddress();
+  Serial.print("Mac: ");
+  Serial.println(mac);
+  ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+  String response = "";
+  String api = "/light?mac=" + mac;
+  char apiBuf[256];
+  Serial.print("PATH: ");
+  Serial.println(apiBuf);
+  api.toCharArray(apiBuf, 256);
+  int statusCode = restGet(apiBuf, &response);
+  //int statusCode = client.get(apiBuf, &response);
+  Serial.print("StatusCode: ");
+  Serial.println(statusCode);
+  Serial.print("Response: ");
+  Serial.println(response);
+  if (statusCode == 200) {
+      // check the message body
+      int firstBracket = response.indexOf('[');
+      int lastBracket = response.indexOf(']');
+      if (lastBracket - firstBracket == 1) {
+          // then empty, so there we need to register the led
+          String user = "DEFAULT_USER";
+          String ledName = mac;
+          String location = "DEFAULT_LOCATION";
+          String description = "DEFAULT_DESCRIPTION";
+          String json = "{\"location\":{\"S\":" + location + "},\"animation\":{\"S\":"+strAnimation+"},\"ip\":{\"S\":"+ip+"},\"user\":{\"S\":"+user+"},\"description\":{\"S\":"+description+"},\"mac\":{\"S\":"+mac+"},\"name\":{\"S\":"+mac+"},\"color\":{\"S\":"+strColor+"}}";
+          char jsonBuf[256];
+          json.toCharArray(jsonBuf, 256);
+          String postResponse = "";
+
+        //   int postStatusCode = client.post("/light", jsonBuf, &postResponse);
+          int postStatusCode = restPost("/light", jsonBuf, &postResponse);
+          Serial.print("Status Code: ");
+          Serial.println(postStatusCode);
+          Serial.print("Response: ");
+          Serial.println(postResponse);
       }
   } else {
-      Serial.println("WIFI is not connected");
+      Serial.println("There was an error checking to see if the device was registered.");
   }
+
 
 }
 
@@ -345,12 +477,6 @@ int setWait(String command) {
   return 1;
 }
 
-int off(String command) {
-  // ingore the incomming command and turn off the strip
-  curAnimation = 0;
-  return 1;
-}
-
 int setColor(String color) {
   Serial.println("Changing color to: " + color);
   if (color.equals("white")) {
@@ -389,3 +515,4 @@ String getMacAddress() {
 void printMacAddress() {
   Serial.print(getMacAddress());
 }
+
